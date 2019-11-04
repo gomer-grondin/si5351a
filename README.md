@@ -6,13 +6,13 @@
 	For this reason, I did not use a rotary encoder as I first considered.  
 	Instead, I use the arrow keys unbuffered for quick response.
 
-sub usage {
- print "   up -- increase frequency\n";
- print " down -- decrease frequency\n";
- print "right -- increase scale\n";
- print " left -- decrease scale\n";
- print " enter ... terminate program\n";
-}
+   
+	            up -- increase frequency
+            down -- decrease frequency
+           right -- increase scale
+            left -- decrease scale
+            enter ... terminate program
+   
 
   invocation:
        [JSON=1] ./freqscan.pl 2>/dev/null
@@ -43,7 +43,7 @@ sub usage {
 	frequencies > 150Mhz.
 
 	Neither spread spectrum nor phase offset is configured by this script.
-more generally, this script does what it does, not what you might like
+  more generally, this script does what it does, not what you might like
 	it to do. ( i.e. CLKx_DIS_STATE ).
 
 	Silicon Labs documentation issues:
