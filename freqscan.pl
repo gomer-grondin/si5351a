@@ -5,25 +5,49 @@
 #	This script configures clk0 of the Adafruit si5351A board from a I2C
 #	capable SBC.. My setup is a headless BBB some distance away using SSH.  
 #	For this reason, I did not use a rotary encoder as I first considered.  
-#	Instead, I use the arrow keys unbuffered for quick response.
+#	Instead, I use the arrow keys unbuffered for quick response.  Also, the
+#	keyboard is needed in the latest version to choose whether to use
+#	an integer or fractional solution.
 #
-#sub usage {
 # print "   up -- increase frequency\n";
 # print " down -- decrease frequency\n";
 # print "right -- increase scale\n";
 # print " left -- decrease scale\n";
+# print "  's' -- show solution\n";
+# print "  'i' -- use integer solution\n";
+# print "  'f' -- use fractional solution\n";
 # print " enter ... terminate program\n";
-#}
 #
 #  invocation:
-#       [JSON=1] ./freqscan.pl 2>/dev/null
+#       [INTEGER=1] [JSON=1] ./freqscan.pl [freq] 2>/dev/null
 #
 #       ignore stderr unless you'd like to see debug output
-#       invoke with JSON support if you'd like to build a json database
+#       invoke with JSON support if you'd like to build a JSON database
 #
-#       on my BeagleBone Black ( BBB not latest nor fastest sbc ), JSON database
-#       has minimal benefit.  Ditto the cache (hash) that memoizes frequencies
-#       already computed.
+#  INTEGER Solution:
+#       This version of the script supports integer solutions... sort of.
+#       in the CalcFreq.pm module, 31 frequencies are identified as problems
+#       for the integer solution.  There are probably more.
+#       I have not identified what causes these frequencies to be problems,
+#       but I doubt that it is this script.  My gratitude to any one who
+#       demonstrates that I am mistaken in this assertion.  I do intend to
+#       post to the Silicon Labs forum, requesting their assistance.
+#
+#       to compensate, I now recommend that the JSON option be used to store
+#       the solutions per frequency.  If your desired frequency uses an
+#       integer solution that your oscillosope contradicts, use the 'f' key
+#       to use a fractional solution, and store that solution in your JSON
+#       database.  An example JSON database has been included in this version
+#       that "corrects" the 31 identified problem frequencies to use a 
+#       fractional solution.
+#
+#       IF you've chosen to enable the integer solution mode, this version 
+#       of the script defaults to fractional solution, but 
+#       attempts to "upgrade" to an integer solution behind the scene during
+#       slack time.  This is how problem integer solutions can find their
+#       way into your JSON database.  Use the 'f' key to remedy this.
+#       
+#  /INTEGER Solution:
 #
 #       Modules needed:
 #          Term::ReadKey -- no buffer on input
@@ -48,11 +72,11 @@
 #	it to do. ( i.e. CLKx_DIS_STATE ).
 #
 #	Silicon Labs documentation issues:
-#	  -  no link to report issues with documentation
 #	  -  https://www.silabs.com/documents/public/data-sheets/Si5351-b.pdf
 #	  	reports that frequencies down to 2.5kHz supported.  Perhaps 
 #	  	with clock inputs other than the 25Mhz crystal on the Adafruit
-#	  	board.  Math indicates that the minimum frequency with the Si5351A
+#	  	board.  
+#	  	Math indicates that the minimum frequency with the Si5351A
 #	  	is 3.255kHz ( 25 * 15 / 900 / 128 ). 3.256kHz is the min 
 #	  	frequency that this script will configure.
 #	  - https://www.silabs.com/documents/public/application-notes/AN619.pdf
@@ -73,7 +97,7 @@ use lib '.';
 use CalcFreq;
 use Fields;
 use Term::ReadKey;
-use Time::HiRes qw( usleep );
+use Time::HiRes qw( usleep time );
 use strict;
 use warnings 'all';
 
@@ -82,7 +106,9 @@ use warnings 'all';
 # 27;91;67  right
 # 27;91;68  left
 
-my ( $scale, $freq ) = ( 1, .003256 );  # min frequency
+my ( $scale, $freq ) = ( 1000, 1 );
+$ARGV[0] and $freq = $ARGV[0];
+
 {
   my $s = { 
 	  1 => '1hz',
@@ -101,9 +127,15 @@ my ( $scale, $freq ) = ( 1, .003256 );  # min frequency
     my $f  = $freq;
     my $pf = $freq < 1 ? 'Khz' : 'Mhz';
     $freq < 1 and $f *= 1000;
-    printf( "Frequency = %6f %s, Scale = %s\n", $f, $pf, $s->{$scale} );
+    printf( "\nFrequency = %6f %s, Scale = %s", $f, $pf, $s->{$scale} );
     keys %$r or return;
+    if( exists $r->{'msna_p2'} and $r->{'msna_p2'} == 0 ) { 
+	    print " INTEGER ";
+    } else { 
+	    print " FRACTIONAL "; 
+    }
     Fields::clk0_oeb( 1 );  # output disable
+    Fields::clk0_pdn( 1 );  # power down
     Fields::flush_cache();
     for( sort keys %$r ) { 
 	    my $f = "Fields::$_( $r->{$_} )";
@@ -115,6 +147,9 @@ my ( $scale, $freq ) = ( 1, .003256 );  # min frequency
     Fields::plla_rst( 1 );  # reset 
     Fields::flush_cache();
     Fields::plla_rst( 0 );  # self clearing bit .. update register cache
+    Fields::flush_cache();
+    Fields::clk0_pdn( 0 );  # power up 
+    Fields::flush_cache();
     Fields::clk0_oeb( 0 );  # output enable
     Fields::flush_cache();
   }
@@ -151,6 +186,9 @@ sub usage {
  print " down -- decrease frequency\n";
  print "right -- increase scale\n";
  print " left -- decrease scale\n";
+ print "  's' -- show solution\n";
+ print "  'i' -- use integer solution\n";
+ print "  'f' -- use fractional solution\n";
  print " enter ... terminate program\n";
 }
 
@@ -160,10 +198,41 @@ report( CalcFreq::calcfreq( $freq ) );
 ReadMode 4;
 my ( $key, $keystack );
 while( 1 ) {
+  my $start = time();
   while( not defined ( $key = ReadKey(-1))) {
-      usleep( 10000 );
+      if( time() - $start > 2 ) {        # no key input for 2 seconds
+        CalcFreq::check_integer();       # can fractional solution be upgraded?
+        usleep( 10000 );
+      } else {
+        usleep( 40000 );
+      }
   }
+
+  if( $key eq "s" ) { CalcFreq::show_solution( $freq ); }
+
+  if( $key eq "f" ) {
+    if( my $r = CalcFreq::fractional( $freq ) ) {
+      my $r2 = CalcFreq::calc_register( $r );
+      CalcFreq::update_cache( $freq, $r2 );
+      print " FRACTIONAL solution overwrote current solution";
+      report( CalcFreq::calcfreq( $freq ) );
+    }
+  }
+
+  if( $key eq "i" ) {
+    if( my $r = CalcFreq::integer( $freq ) ) {
+      my $r2 = CalcFreq::calc_register( $r );
+      CalcFreq::update_cache( $freq, $r2 );
+      print " INTEGER solution overwrote current solution";
+      report( CalcFreq::calcfreq( $freq ) );
+    } else {
+      print " no INTEGER solution";
+    }
+  }
+
   if( $key eq "\n" ) {
+    print "\n";
+    while( CalcFreq::check_integer() ) {;}
     CalcFreq::write_json();
     last;
   }
