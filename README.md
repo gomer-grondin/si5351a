@@ -8,14 +8,14 @@
 	keyboard is needed in the latest version to choose whether to use
 	an integer or fractional solution.
 
- print "   up -- increase frequency\n";
- print " down -- decrease frequency\n";
- print "right -- increase scale\n";
- print " left -- decrease scale\n";
- print "  's' -- show solution\n";
- print "  'i' -- use integer solution\n";
- print "  'f' -- use fractional solution\n";
- print " enter ... terminate program\n";
+    up -- increase frequency
+    down -- decrease frequency
+    right -- increase scale
+    left -- decrease scale
+     's' -- show solution
+     'i' -- use integer solution
+     'f' -- use fractional solution
+    enter ... terminate program
 
   invocation:
        [INTEGER=1] [JSON=1] ./freqscan.pl [freq] 2>/dev/null
