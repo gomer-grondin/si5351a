@@ -10,6 +10,18 @@ use JSON;
 
 {
   my ( $cache, $loaded, $integer_check );
+  sub increase_phoff {
+    exists $cache->{'clk1_phoff'} or $cache->{'clk1_phoff'} = -1;
+    $cache->{'clk1_phoff'} < 127  or $cache->{'clk1_phoff'} = -1; 
+    ++$cache->{'clk1_phoff'};
+  }
+
+  sub decrease_phoff  {
+    exists $cache->{'clk1_phoff'} or $cache->{'clk1_phoff'} = 128;
+    $cache->{'clk1_phoff'} > 0    or $cache->{'clk1_phoff'} = 128; 
+    --$cache->{'clk1_phoff'};
+  }
+
   sub show_solution {
     my ( $freq ) = @_;
     $freq = sprintf( "%.6g", $freq );
@@ -124,7 +136,7 @@ sub fractional {
   for ( $d = 10 ; $d <= 900 ; $d += 2 ) {
       $m = $f1 * $d * 2**$r;
       $m < 15 and next;
-      $m > 90 and next;
+      $m > 46 and next;
       $done = 1;
       last;
   }
@@ -137,20 +149,31 @@ sub calc_register {
   my $ma = int( $s->{m} );
   my $mc = 1000 * 1000;
   my $mb = sprintf( "%d", ( $s->{m} - int( $s->{m} ) ) * $mc );
-  my $fba_int = 0;
-  $mb == 0 and $s->{m} % 2 == 0 and $fba_int = 1;
+  my ( $fba_int, $ms0_int, $ms1_int ) = ( 0, 0, 0 );
+  if( exists $ENV{'INTEGER'} ) {
+    $mb == 0 and $s->{m} % 2 == 0 and $fba_int = 1;
+    $ms0_int = 1;
+    $ms1_int = 1;
+  }
   return { 
 	     r0_div => $s->{r},
+	     r1_div => $s->{r},
 	     msna_p1 => 128 * $ma + ( int( 128 * $mb / $mc ) ) - 512,
 	     msna_p2 => 128 * $mb - ( $mc * int( 128 * $mb / $mc ) ),
 	     msna_p3 => $mc,
+	     ms1_p1 => 128 * $s->{d} - 512,
+	     ms1_p2 => 0,
+	     ms1_p3 => 0,
 	     ms0_p1 => 128 * $s->{d} - 512,
 	     ms0_p2 => 0,
 	     ms0_p3 => 0,
 	     fba_int => $fba_int,
-	     ms0_int => 1,
+	     ms0_int => $ms0_int,
+	     ms1_int => $ms1_int,
 	     clk0_src => 3,
+	     clk1_src => 3,
 	     ms0_src => 0,
+	     ms1_src => 0,
 	     plla_src => 0,
 	     xtal_cl => 3,
      };

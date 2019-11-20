@@ -13,9 +13,12 @@
 # print " down -- decrease frequency\n";
 # print "right -- increase scale\n";
 # print " left -- decrease scale\n";
-# print "  's' -- show solution\n";
-# print "  'i' -- use integer solution\n";
 # print "  'f' -- use fractional solution\n";
+# print "  'i' -- use integer solution\n";
+# print "  'o' -- decrease phase offset\n";
+# print "  'p' -- increase phase offset\n";
+# print "  's' -- show solution\n";
+# print "  'u' -- usage\n";
 # print " enter ... terminate program\n";
 #
 #  invocation:
@@ -60,16 +63,16 @@
 #         I looked into bumping the bus speed to 400Khz, but abandoned the
 #         effort as having minimal benefit at best.  
 #
-#       clk0 is the only clock configured by this script.  Please feel free
-#       to extend this script as you need to.
+#       Phase offset:
+#         if neither JSON nor INTEGER mode is requested, phase offset is 
+#         enabled.  use the 'o' and 'p' keys to adjust the offset of clk1 to
+#         clk0.
 #
 #	my scope isn't capable of verifying frequencies over ~ 30Mhz, but I
 #	believe that this script is correct up to 150Mhz.  I did not code for
 #	frequencies > 150Mhz.
 #
-#	Neither spread spectrum nor phase offset is configured by this script.
-#	more generally, this script does what it does, not what you might like
-#	it to do. ( i.e. CLKx_DIS_STATE ).
+#	spread spectrum is not configured by this script.
 #
 #	Silicon Labs documentation issues:
 #	  -  https://www.silabs.com/documents/public/data-sheets/Si5351-b.pdf
@@ -106,7 +109,7 @@ use warnings 'all';
 # 27;91;67  right
 # 27;91;68  left
 
-my ( $scale, $freq ) = ( 1000, 1 );
+my ( $scale, $freq, $phoff ) = ( 1000, 1, 0 );
 $ARGV[0] and $freq = $ARGV[0];
 
 {
@@ -127,15 +130,22 @@ $ARGV[0] and $freq = $ARGV[0];
     my $f  = $freq;
     my $pf = $freq < 1 ? 'Khz' : 'Mhz';
     $freq < 1 and $f *= 1000;
-    printf( "\nFrequency = %6f %s, Scale = %s", $f, $pf, $s->{$scale} );
+    printf( "\nFrequency = %6f %s, Scale = %s, Phase Offset = %d", 
+	                                      $f, $pf, $s->{$scale}, $phoff );
     keys %$r or return;
-    if( exists $r->{'msna_p2'} and $r->{'msna_p2'} == 0 ) { 
-	    print " INTEGER ";
-    } else { 
-	    print " FRACTIONAL "; 
+    {
+      my $mode = ' FRACTIONAL ';
+      if( exists $ENV{'INTEGER'} ) {
+        if( exists $r->{'msna_p2'} and $r->{'msna_p2'} == 0 and 
+            exists $r->{'fba_int'} and $r->{'fba_int'} == 1 
+	  ) { $mode = ' INTEGER '; }
+      } 
+      print $mode;
     }
     Fields::clk0_oeb( 1 );  # output disable
+    Fields::clk1_oeb( 1 );  # output disable
     Fields::clk0_pdn( 1 );  # power down
+    Fields::clk1_pdn( 1 );  # power down
     Fields::flush_cache();
     for( sort keys %$r ) { 
 	    my $f = "Fields::$_( $r->{$_} )";
@@ -144,13 +154,15 @@ $ARGV[0] and $freq = $ARGV[0];
 	    $@ and warn $@;
     }
     Fields::flush_cache();
+    Fields::clk0_pdn( 0 );  # power up 
+    Fields::clk1_pdn( 0 );  # power up 
+    Fields::flush_cache();
     Fields::plla_rst( 1 );  # reset 
     Fields::flush_cache();
     Fields::plla_rst( 0 );  # self clearing bit .. update register cache
     Fields::flush_cache();
-    Fields::clk0_pdn( 0 );  # power up 
-    Fields::flush_cache();
     Fields::clk0_oeb( 0 );  # output enable
+    Fields::clk1_oeb( 0 );  # output enable
     Fields::flush_cache();
   }
 
@@ -176,23 +188,30 @@ $ARGV[0] and $freq = $ARGV[0];
   }
   sub down {   # decrease frequency
     $freq -= $scale / 1000000;
-    $freq > 0 or $freq += $scale / 1000000;
+    $freq > .003255 or $freq += $scale / 1000000;
     report( CalcFreq::calcfreq( $freq ) );
   }
 } 
 
 sub usage {
+ print "\n";
+ print "USAGE: [INTEGER=1] [JSON=1] ./freqscan [freq] 2>/dev/null\n";
  print "   up -- increase frequency\n";
  print " down -- decrease frequency\n";
  print "right -- increase scale\n";
  print " left -- decrease scale\n";
- print "  's' -- show solution\n";
- print "  'i' -- use integer solution\n";
  print "  'f' -- use fractional solution\n";
+ print "  'i' -- use integer solution\n";
+ print "  'o' -- decrease phase offset\n";
+ print "  'p' -- increase phase offset\n";
+ print "  's' -- show solution\n";
+ print "  'u' -- usage\n";
  print " enter ... terminate program\n";
 }
 
 usage();
+Fields::clk0_phoff( 0 );
+Fields::clk1_phoff( 0 );
 report( CalcFreq::calcfreq( $freq ) );
 
 ReadMode 4;
@@ -200,26 +219,61 @@ my ( $key, $keystack );
 while( 1 ) {
   my $start = time();
   while( not defined ( $key = ReadKey(-1))) {
+      my $sleeptime;
       if( time() - $start > 2 ) {        # no key input for 2 seconds
-        CalcFreq::check_integer();       # can fractional solution be upgraded?
-        usleep( 10000 );
-      } else {
-        usleep( 40000 );
+        # can fractional solution be upgraded?
+        if( CalcFreq::check_integer() ) { $sleeptime = 10000; }
+	$sleeptime or $sleeptime = 40000;
+        usleep( $sleeptime );
       }
   }
 
-  if( $key eq "s" ) { CalcFreq::show_solution( $freq ); }
+  if( $key eq 's' ) { CalcFreq::show_solution( $freq ); next; }
+  if( $key eq 'u' ) { usage(); next; }
+  if( $key eq 'o' ) { 
+    if( exists $ENV{'INTEGER'} ) {
+      print " INTEGER mode enabled, no phase offset "; 
+      next;
+    }
+    if( exists $ENV{'JSON'} ) {
+      print " JSON mode enabled, no phase offset "; 
+      next;
+    }
+    $phoff = CalcFreq::decrease_phoff(); 
+    Fields::clk0_phoff( 0 );
+    Fields::clk1_phoff( $phoff );
+    Fields::flush_cache();
+    report( CalcFreq::calcfreq( $freq ) );
+    next; 
+  }
+  if( $key eq 'p' ) {
+    if( exists $ENV{'INTEGER'} ) {
+      print " INTEGER mode enabled, no phase offset "; 
+      next;
+    }
+    if( exists $ENV{'JSON'} ) {
+      print " JSON mode enabled, no phase offset "; 
+      next;
+    }
+    $phoff = CalcFreq::increase_phoff(); 
+    Fields::clk0_phoff( 0 );
+    Fields::clk1_phoff( $phoff );
+    Fields::flush_cache();
+    report( CalcFreq::calcfreq( $freq ) );
+    next; 
+  }
 
-  if( $key eq "f" ) {
+  if( $key eq 'f' ) {
     if( my $r = CalcFreq::fractional( $freq ) ) {
       my $r2 = CalcFreq::calc_register( $r );
       CalcFreq::update_cache( $freq, $r2 );
       print " FRACTIONAL solution overwrote current solution";
       report( CalcFreq::calcfreq( $freq ) );
     }
+    next;
   }
 
-  if( $key eq "i" ) {
+  if( $key eq 'i' ) {
     if( my $r = CalcFreq::integer( $freq ) ) {
       my $r2 = CalcFreq::calc_register( $r );
       CalcFreq::update_cache( $freq, $r2 );
@@ -228,6 +282,7 @@ while( 1 ) {
     } else {
       print " no INTEGER solution";
     }
+    next;
   }
 
   if( $key eq "\n" ) {
@@ -236,6 +291,7 @@ while( 1 ) {
     CalcFreq::write_json();
     last;
   }
+
   my $ascii = ord($key);
   push @$keystack, $ascii;
   next if( $ascii < 65 or $ascii > 68 );

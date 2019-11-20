@@ -59,16 +59,16 @@
          I looked into bumping the bus speed to 400Khz, but abandoned the
          effort as having minimal benefit at best.  
 
-       clk0 is the only clock configured by this script.  Please feel free
-       to extend this script as you need to.
+        Phase offset:
+          if neither JSON nor INTEGER mode is requested, phase offset is 
+          enabled.  use the 'o' and 'p' keys to adjust the offset of clk1 to
+          clk0.
 
 	my scope isn't capable of verifying frequencies over ~ 30Mhz, but I
 	believe that this script is correct up to 150Mhz.  I did not code for
 	frequencies > 150Mhz.
 
-	Neither spread spectrum nor phase offset is configured by this script.
-	more generally, this script does what it does, not what you might like
-	it to do. ( i.e. CLKx_DIS_STATE ).
+	spread spectrum is not configured by this script.
 
 	Silicon Labs documentation issues:
 	  -  https://www.silabs.com/documents/public/data-sheets/Si5351-b.pdf
