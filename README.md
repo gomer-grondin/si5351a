@@ -15,6 +15,9 @@
      's' -- show solution
      'i' -- use integer solution
      'f' -- use fractional solution
+     'o' -- decrease phase offset
+     'p' -- increase phase offset
+     'u' -- usage
     enter ... terminate program
 
   invocation:
