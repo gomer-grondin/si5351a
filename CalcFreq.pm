@@ -106,9 +106,9 @@ use JSON;
 sub _solve_for_r {
 	my( $freq ) = @_;
 	for( my $r = 0 ; $r < 8 ; $r++ ) {
-		$freq * 900 * 2**$r > 15 and return $r;
+		$freq * 900 * 2**$r > 16 and return $r;
 	}
-	die "unable to calc r for $freq";
+	7;
 }
 
 sub integer {
@@ -131,14 +131,28 @@ sub integer {
 sub fractional {
   my ( $freq ) = @_;
   my $f1 = sprintf( "%.6g", $freq / 25 ); # 25MHZ crystal
-  my ( $done, $r, $d, $m );
+  my ( $done, $r, $d, $m, $minmult );
   $r = _solve_for_r( $f1 );
-  for ( $d = 10 ; $d <= 900 ; $d += 2 ) {
+  for ( $minmult = 36 ; $minmult >= 16 ; $minmult -= 2 ) {
+    for ( $d = 8 ; $d <= 126 ; $d += 2 ) {
       $m = $f1 * $d * 2**$r;
-      $m < 15 and next;
+      $m < $minmult and next;
       $m > 46 and next;
       $done = 1;
       last;
+    }
+    $done and last;
+  }
+  $done and return { r => $r, m => $m, d => $d, };
+  for ( $minmult = 36 ; $minmult >= 15 ; $minmult-- ) {
+    for ( $d = 127 ; $d <= 900 ; $d++ ) {
+      $m = $f1 * $d * 2**$r;
+      $m < $minmult and next;
+      $m > 46 and next;
+      $done = 1;
+      last;
+    }
+    $done and last;
   }
   $done and return { r => $r, m => $m, d => $d, };
   undef;

@@ -12,6 +12,7 @@
     down -- decrease frequency
     right -- increase scale
     left -- decrease scale
+     'd' -- show details of phase offset
      's' -- show solution
      'i' -- use integer solution
      'f' -- use fractional solution

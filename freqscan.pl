@@ -109,7 +109,7 @@ use warnings 'all';
 # 27;91;67  right
 # 27;91;68  left
 
-my ( $scale, $freq, $phoff ) = ( 1000, 1, 0 );
+my ( $scale, $freq, $phoff, $calc_phoff, $detail ) = ( 1000, 1, 0, 0, {} );
 $ARGV[0] and $freq = $ARGV[0];
 
 {
@@ -130,9 +130,21 @@ $ARGV[0] and $freq = $ARGV[0];
     my $f  = $freq;
     my $pf = $freq < 1 ? 'Khz' : 'Mhz';
     $freq < 1 and $f *= 1000;
-    printf( "\nFrequency = %6f %s, Scale = %s, Phase Offset = %d", 
-	                                      $f, $pf, $s->{$scale}, $phoff );
+    printf( "\nFrequency = %6f %s\n", $f, $pf );
+    printf( "\tScale = %s\n", $s->{$scale} );
+    printf( "\tPhase Offset = %d\n", $phoff );
     keys %$r or return;
+    {
+      $detail->{'multiplier'} = ( ( 512 + $r->{'msna_p1'} ) / 128 ); 
+#                               ( $r->{'msna_p2'} / $r->{'msna_p3'} );
+      $detail->{'divider'} =    ( 512 + $r->{'ms0_p1'} ) / 128;
+      $detail->{'vco'} = 25 * $detail->{'multiplier'};
+      $detail->{'vco_period_ns'} = 1000/$detail->{'vco'};
+      $detail->{'nsperoffset'} = $detail->{'vco_period_ns'} / 4;
+      $detail->{'calc_delay_ns'} = $phoff * $detail->{'nsperoffset'};
+      $detail->{'calc_phoff'} = 360 * $detail->{'calc_delay_ns'} / ( 1000  / $freq );
+      printf( "\tPhase Offset (calc) = %.2f degrees", $detail->{'calc_phoff'} );
+    }  
     {
       my $mode = ' FRACTIONAL ';
       if( exists $ENV{'INTEGER'} ) {
@@ -183,10 +195,12 @@ $ARGV[0] and $freq = $ARGV[0];
     }
   }
   sub up {     # increase frequency
+    $detail = {};
     $freq += $scale / 1000000;
     report( CalcFreq::calcfreq( $freq ) );
   }
   sub down {   # decrease frequency
+    $detail = {};
     $freq -= $scale / 1000000;
     $freq > .003255 or $freq += $scale / 1000000;
     report( CalcFreq::calcfreq( $freq ) );
@@ -228,6 +242,13 @@ while( 1 ) {
       }
   }
 
+  if( $key eq 'd' ) {
+	  print "\n";
+	  for ( sort keys %$detail ) {
+		  print $_ . ' ' . $detail->{$_} . "\n";
+	  }
+	  next;
+  }
   if( $key eq 's' ) { CalcFreq::show_solution( $freq ); next; }
   if( $key eq 'u' ) { usage(); next; }
   if( $key eq 'o' ) { 
