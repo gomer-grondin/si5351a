@@ -214,6 +214,7 @@ sub usage {
  print " down -- decrease frequency\n";
  print "right -- increase scale\n";
  print " left -- decrease scale\n";
+ print "  'd' -- show details of phase offset\n";
  print "  'f' -- use fractional solution\n";
  print "  'i' -- use integer solution\n";
  print "  'o' -- decrease phase offset\n";
