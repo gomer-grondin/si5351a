@@ -13,6 +13,7 @@
 # print " down -- decrease frequency\n";
 # print "right -- increase scale\n";
 # print " left -- decrease scale\n";
+# print "  'd' -- show details of phase offset\n";
 # print "  'f' -- use fractional solution\n";
 # print "  'i' -- use integer solution\n";
 # print "  'o' -- decrease phase offset\n";
@@ -104,13 +105,24 @@ use Time::HiRes qw( usleep time );
 use strict;
 use warnings 'all';
 
-# 27;91;65  up
-# 27;91;66  down
-# 27;91;67  right
-# 27;91;68  left
-
 my ( $scale, $freq, $phoff, $calc_phoff, $detail ) = ( 1000, 1, 0, 0, {} );
 $ARGV[0] and $freq = $ARGV[0];
+
+my $fun = {
+	d => sub { show_detail() },
+	u => sub { usage() },
+	o => sub { decrease_phoff() },
+	p => sub { increase_phoff() },
+	f => sub { fractional() },
+	i => sub { integer() },
+	s => sub { CalcFreq::show_solution( $_[0] ) },
+	"\n" => sub {
+                          print "\n";
+                          while( CalcFreq::check_integer() ) {;}
+                          CalcFreq::write_json();
+			  1;
+		  },
+};
 
 {
   my $s = { 
@@ -131,19 +143,21 @@ $ARGV[0] and $freq = $ARGV[0];
     my $pf = $freq < 1 ? 'Khz' : 'Mhz';
     $freq < 1 and $f *= 1000;
     printf( "\nFrequency = %6f %s\n", $f, $pf );
-    printf( "\tScale = %s\n", $s->{$scale} );
-    printf( "\tPhase Offset = %d\n", $phoff );
-    keys %$r or return;
-    {
-      $detail->{'multiplier'} = ( ( 512 + $r->{'msna_p1'} ) / 128 ); 
-#                               ( $r->{'msna_p2'} / $r->{'msna_p3'} );
-      $detail->{'divider'} =    ( 512 + $r->{'ms0_p1'} ) / 128;
-      $detail->{'vco'} = 25 * $detail->{'multiplier'};
-      $detail->{'vco_period_ns'} = 1000/$detail->{'vco'};
-      $detail->{'nsperoffset'} = $detail->{'vco_period_ns'} / 4;
-      $detail->{'calc_delay_ns'} = $phoff * $detail->{'nsperoffset'};
-      $detail->{'calc_phoff'} = 360 * $detail->{'calc_delay_ns'} / ( 1000  / $freq );
-      printf( "\tPhase Offset (calc) = %.2f degrees", $detail->{'calc_phoff'} );
+    printf( "\tScale = %s ", $s->{$scale} );
+    unless( $ENV{'INTEGER'} or $ENV{'JSON'} ) {
+      printf( "\n\tPhase Offset = %d\n", $phoff );
+      keys %$r or return;
+      {
+        $detail->{'multiplier'} = ( ( 512 + $r->{'msna_p1'} ) / 128 ); 
+#                                 ( $r->{'msna_p2'} / $r->{'msna_p3'} );
+        $detail->{'divider'} =    ( 512 + $r->{'ms0_p1'} ) / 128;
+        $detail->{'vco'} = 25 * $detail->{'multiplier'};
+        $detail->{'vco_period_ns'} = 1000/$detail->{'vco'};
+        $detail->{'nsperoffset'} = $detail->{'vco_period_ns'} / 4;
+        $detail->{'calc_delay_ns'} = $phoff * $detail->{'nsperoffset'};
+        $detail->{'calc_phoff'} = 360 * $detail->{'calc_delay_ns'} / ( 1000  / $freq );
+        printf( "\tPhase Offset (calc) = %.2f degrees", $detail->{'calc_phoff'} );
+      }
     }  
     {
       my $mode = ' FRACTIONAL ';
@@ -207,6 +221,66 @@ $ARGV[0] and $freq = $ARGV[0];
   }
 } 
 
+sub show_detail {
+  __phoff() or return 0;
+  print "\n";
+  for ( sort keys %$detail ) {
+	  print $_ . ' ' . $detail->{$_} . "\n";
+  }
+}
+
+sub __phoff {
+    if( exists $ENV{'INTEGER'} ) {
+      print " INTEGER mode enabled, no phase offset "; 
+      return 0;
+    }
+    if( exists $ENV{'JSON'} ) {
+      print " JSON mode enabled, no phase offset "; 
+      return 0;
+    }
+    1;
+}
+
+sub _phoff {
+    my( $f ) = @_;
+    __phoff() or return undef;
+    Fields::clk0_phoff( 0 );
+    $phoff = eval " $f ";
+    Fields::clk1_phoff( $phoff );
+    report( CalcFreq::calcfreq( $freq ) );
+    undef;
+}
+
+sub increase_phoff { _phoff( 'CalcFreq::increase_phoff()' ); }
+sub decrease_phoff { _phoff( 'CalcFreq::decrease_phoff()' ); }
+
+sub _register {
+  my( $r ) = @_;
+  my $r2 = CalcFreq::calc_register( $r );
+  CalcFreq::update_cache( $freq, $r2 );
+  report( CalcFreq::calcfreq( $freq ) );
+}
+
+sub integer {
+    unless( exists $ENV{'INTEGER'} ) { 
+	    print ' INTEGER mode disabled '; 
+	    return; 
+    }
+    if( my $r = CalcFreq::integer( $freq ) ) {
+      print " using INTEGER solution ";
+      _register( $r );
+    } else {
+      print " no INTEGER solution ";
+    }
+}
+
+sub fractional {
+    if( my $r = CalcFreq::fractional( $freq ) ) {
+      print " using FRACTIONAL solution ";
+      _register( $r );
+    }
+}
+
 sub usage {
  print "\n";
  print "USAGE: [INTEGER=1] [JSON=1] ./freqscan [freq] 2>/dev/null\n";
@@ -243,89 +317,27 @@ while( 1 ) {
       }
   }
 
-  if( $key eq 'd' ) {
-	  print "\n";
-	  for ( sort keys %$detail ) {
-		  print $_ . ' ' . $detail->{$_} . "\n";
-	  }
-	  next;
-  }
-  if( $key eq 's' ) { CalcFreq::show_solution( $freq ); next; }
-  if( $key eq 'u' ) { usage(); next; }
-  if( $key eq 'o' ) { 
-    if( exists $ENV{'INTEGER'} ) {
-      print " INTEGER mode enabled, no phase offset "; 
-      next;
-    }
-    if( exists $ENV{'JSON'} ) {
-      print " JSON mode enabled, no phase offset "; 
-      next;
-    }
-    $phoff = CalcFreq::decrease_phoff(); 
-    Fields::clk0_phoff( 0 );
-    Fields::clk1_phoff( $phoff );
-    Fields::flush_cache();
-    report( CalcFreq::calcfreq( $freq ) );
-    next; 
-  }
-  if( $key eq 'p' ) {
-    if( exists $ENV{'INTEGER'} ) {
-      print " INTEGER mode enabled, no phase offset "; 
-      next;
-    }
-    if( exists $ENV{'JSON'} ) {
-      print " JSON mode enabled, no phase offset "; 
-      next;
-    }
-    $phoff = CalcFreq::increase_phoff(); 
-    Fields::clk0_phoff( 0 );
-    Fields::clk1_phoff( $phoff );
-    Fields::flush_cache();
-    report( CalcFreq::calcfreq( $freq ) );
-    next; 
-  }
-
-  if( $key eq 'f' ) {
-    if( my $r = CalcFreq::fractional( $freq ) ) {
-      my $r2 = CalcFreq::calc_register( $r );
-      CalcFreq::update_cache( $freq, $r2 );
-      print " FRACTIONAL solution overwrote current solution";
-      report( CalcFreq::calcfreq( $freq ) );
+  unless( exists $fun->{$key} ) { 
+    my $ascii = ord($key);
+    push @$keystack, $ascii;
+    next if( $ascii < 65 or $ascii > 68 );
+    my $char3 = pop @$keystack;
+    my $char2 = pop @$keystack;
+    my $char1 = pop @$keystack;
+    if( $char1 == 27 and $char2 == 91 ) {
+      left()  if $char3 == 68;
+      right() if $char3 == 67;
+      down()  if $char3 == 66;
+      up()    if $char3 == 65;
     }
     next;
   }
-
-  if( $key eq 'i' ) {
-    if( my $r = CalcFreq::integer( $freq ) ) {
-      my $r2 = CalcFreq::calc_register( $r );
-      CalcFreq::update_cache( $freq, $r2 );
-      print " INTEGER solution overwrote current solution";
-      report( CalcFreq::calcfreq( $freq ) );
-    } else {
-      print " no INTEGER solution";
-    }
-    next;
-  }
-
-  if( $key eq "\n" ) {
-    print "\n";
-    while( CalcFreq::check_integer() ) {;}
-    CalcFreq::write_json();
-    last;
-  }
-
-  my $ascii = ord($key);
-  push @$keystack, $ascii;
-  next if( $ascii < 65 or $ascii > 68 );
-  my $char3 = pop @$keystack;
-  my $char2 = pop @$keystack;
-  my $char1 = pop @$keystack;
-  if( $char1 == 27 and $char2 == 91 ) {
-    left()  if $char3 == 68;
-    right() if $char3 == 67;
-    down()  if $char3 == 66;
-    up()    if $char3 == 65;
-  }
+ 
+  $fun->{$key}($freq) and last; 
 }
 ReadMode 0;
-1;
+# 27;91;65  up
+# 27;91;66  down
+# 27;91;67  right
+# 27;91;68  left
+
